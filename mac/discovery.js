@@ -10,6 +10,7 @@ const dgram = require('dgram');
 const os = require('os');
 const { EventEmitter } = require('events');
 const P = require('../shared/protocol.js');
+const tailnet = require('../shared/tailnet.js'); // fork: Tailscale peers get beacons and probes too
 
 const RETRY_BIND_MS = 5000;
 // Errors that mean macOS's Local Network permission is missing.
@@ -82,7 +83,10 @@ class Discovery extends EventEmitter {
   probe(address) {
     const msg = { t: P.T.PROBE, v: P.PROTOCOL_VERSION, id: this.self.id };
     if (address) this._send(msg, address);
-    else for (const target of this._targets()) this._send(msg, target);
+    else {
+      for (const target of this._targets()) this._send(msg, target);
+      for (const a of tailnet.addresses()) this._send(msg, a);
+    }
   }
 
   // Refresh: what was found is forgotten (an invite stays), and whoever is there answers again.
@@ -162,6 +166,7 @@ class Discovery extends EventEmitter {
   _beacon() {
     const msg = this._beaconMsg();
     for (const target of this._targets()) this._send(msg, target);
+    for (const a of tailnet.addresses()) this._send(msg, a); // not in _targets(): mac/discovery.js reads the Local Network permission from those
   }
 
   _send(msg, address, port = P.DISCOVERY_PORT) {
@@ -202,11 +207,15 @@ class Discovery extends EventEmitter {
     // Older beacons came only from Macs.
     const o = Object.values(P.OS).includes(m.os) ? m.os : P.OS.MAC;
     const old = this.found.get(m.id);
+    // Heard by broadcast and by tailnet: keep the LAN address while it is fresh, so it doesn't swap every round.
+    const viaTailnet = tailnet.has(rinfo.address);
+    const lanAt = viaTailnet ? (old && old.lanAt) || 0 : Date.now();
     const d = {
       id: m.id,
       name: typeof m.name === 'string' && m.name ? m.name.slice(0, 100) : o === P.OS.MAC ? 'Mac' : 'PC',
       os: o,
-      address: rinfo.address,
+      address: viaTailnet && old && Date.now() - lanAt < P.DEVICE_STALE_MS ? old.address : rinfo.address,
+      lanAt,
       port,
       fp: P.normFingerprint(m.fp),
       lastSeen: Date.now(),
