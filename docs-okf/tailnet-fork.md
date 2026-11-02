@@ -1,6 +1,6 @@
 # Tailnet fork of DuoDesk
 
-Status: code done, not yet on bazzite-go or the Mac
+Status: built; release `v2.5.0-tailnet.1` installed on all three computers 2026-11-02 (`install.md`). Tests 2-6 not run yet.
 
 Written 2026-11-02 against upstream `50125ca` (v2.5.0). Changes 1-7 built the same day on branch `tailnet` of the fork `raphant/DuoDesk` (remote `fork`); test 1 passes and a dev run on `bazzite` sends beacons to the tailnet (see Progress). Next: builds (Build and release), then tests 2-6 on the three computers.
 
