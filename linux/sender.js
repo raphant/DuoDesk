@@ -44,7 +44,8 @@ class Sender extends EventEmitter {
     });
   }
 
-  // opts: {sourceId, width, height, follow?, inset?, mbps, fps?, audio?, offer: {kind, wid?}} → session number
+  // opts: {sourceId | cameraLabel (a Wayland monitor as a camera, screenportal.js), width, height, follow?,
+  // inset?, mbps, fps?, audio?, offer: {kind, wid?}} → session number
   start(opts) {
     const session = ++this.counter;
     this.live.add(session);

@@ -1,11 +1,12 @@
 // TwinDesk — Copyright (C) 2026 inukaasith. GPL-3.0, see LICENSE.
 // Share screen (copy of windows/pcscreen.js): this computer's
 // screen in a window on the other one. Mirror = one existing monitor; Extend = the virtual monitor
-// (vdd.js). On X11 each monitor is a desktopCapturer source; on Wayland the desktop's portal asks
-// which screen to share (PipeWire), once per start. The screen's sound comes from loopback.js. Sharing starts off every
-// time the app starts. We offer an `rtc2` session (kind `screen` / `screen+audio`) while sharing is
-// on and the Mac's `screen.policy` accepts (sender.js); `in.*` without `wid` from the Mac are
-// injected by the helper (remote-input.js).
+// (vdd.js). On X11 each monitor is a desktopCapturer source. On Wayland, Mirror takes the monitor
+// as a camera from screenportal.js, with no dialog when unattended-setup.sh was run; otherwise (and
+// for Extend) the desktop's portal asks which screen to share (PipeWire), once per start. The
+// screen's sound comes from loopback.js. Sharing starts off every time the app starts. We offer an
+// `rtc2` session (kind `screen` / `screen+audio`) while sharing is on and the Mac's `screen.policy`
+// accepts (sender.js); `in.*` without `wid` from the Mac are injected by the helper (remote-input.js).
 // `screen.policy` means "a viewer is open and watching" (any peer); nothing is captured
 // while it is false. A peer that never sends one (an older app) counts as watching, after a moment
 // for its first policy to arrive. We tell the viewer what we share (`screen.state`) and, when
@@ -13,6 +14,7 @@
 const { desktopCapturer, screen: displays } = require('electron');
 const P = require('../shared/protocol.js');
 const RemoteInput = require('./remote-input');
+const { ScreenPortal } = require('./screenportal');
 const loopback = require('./loopback');
 
 const WAYLAND = process.env.XDG_SESSION_TYPE === 'wayland';
@@ -37,6 +39,8 @@ class PcScreen {
     this.sending = null; // {session, displayId, rect (physical px), key}
     this.status = { status: 'off', error: '', name: '', width: 0, height: 0 };
     this.input = new RemoteInput(opts);
+    this.portal = new ScreenPortal(); // Wayland Mirror's cameras, while sharing
+    this.portal.on('exit', () => { this._stopSend(true); this.apply(); }); // the cameras went away: start again
     this.busy = false;
     this.lastMode = 'mirror'; // what screen.ctl {share:true} starts (the last mode used)
     this.stateKey = ''; // the last screen.state sent on this connection
@@ -189,27 +193,33 @@ class PcScreen {
     // Bluetooth can't carry the picture: it starts once the session is on Wi-Fi (netlink.js).
     const transport = (this.link.current && this.link.current.transport) || 'ip';
     const want = connected && this.mode !== 'off' && !this.busy && this.mac.accept && transport !== 'ble';
-    if (!want) return this._stopSend(connected);
+    if (!want) { this.portal.stop(); return this._stopSend(connected); }
     const d = await this._target();
-    if (!d) return this._stopSend(true);
+    if (!d) { this.portal.stop(); return this._stopSend(true); }
     const rect = screenRect(d);
     const [width, height] = this._streamSize(rect);
     const fps = PcScreen.fps(d);
     const key = [d.id, rect.x, rect.y, rect.width, rect.height, width, this.cfg.mbps, this.cfg.sound, fps, transport].join(',');
     if (this.sending && this.sending.key === key) return;
-    // Wayland: the portal's picker lists the virtual monitor with the others.
-    if (WAYLAND && this.mode === 'extend' && this.popup) this.popup('away', 'Choose “Virtual remote monitor” to extend onto {name}');
-    let sources;
-    try {
-      sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
-    } catch (e) {
-      sources = [];
-    }
-    // Wayland: the portal hands back the one screen the person picked (no display ids).
-    const src = sources.find((s) => s.display_id === String(d.id)) || (WAYLAND || sources.length === 1 ? sources[0] : null);
-    if (!src) {
-      this.status.error = WAYLAND ? 'No screen was picked to share' : 'The desktop didn’t offer that monitor for capture';
-      return this._stopSend(true);
+    let cameraLabel = '';
+    if (WAYLAND && this.mode === 'mirror') cameraLabel = await this._camera(rect, fps);
+    else this.portal.stop();
+    let src = null;
+    if (!cameraLabel) {
+      // Wayland: the portal's picker lists the virtual monitor with the others.
+      if (WAYLAND && this.mode === 'extend' && this.popup) this.popup('away', 'Choose “Virtual remote monitor” to extend onto {name}');
+      let sources;
+      try {
+        sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } });
+      } catch (e) {
+        sources = [];
+      }
+      // Wayland: the portal hands back the one screen the person picked (no display ids).
+      src = sources.find((s) => s.display_id === String(d.id)) || (WAYLAND || sources.length === 1 ? sources[0] : null);
+      if (!src) {
+        this.status.error = WAYLAND ? 'No screen was picked to share' : 'The desktop didn’t offer that monitor for capture';
+        return this._stopSend(true);
+      }
     }
     let audio = '';
     if (this.cfg.sound) audio = await loopback.acquire().catch((e) => { this.status.error = 'Sound: ' + e.message; return ''; });
@@ -217,10 +227,23 @@ class PcScreen {
     this._stopSend(true);
     // A phone over Wi-Fi: a high rate only fills the radio's queues (latency), it isn't sharper there.
     const mbps = this.link.peerOs === P.OS.ANDROID ? Math.min(16, this.cfg.mbps) : this.cfg.mbps;
-    const session = this.sender.start({ sourceId: src.id, width, height, mbps, fps, audio: false, audioLabel: audio, offer: { kind: 'screen' } });
+    const session = this.sender.start({ sourceId: src ? src.id : '', cameraLabel, width, height, mbps, fps, audio: false, audioLabel: audio, offer: { kind: 'screen' } });
     this.sending = { session, displayId: d.id, rect, key, loop: !!audio };
     this.stats = null;
-    Object.assign(this.status, { status: 'starting', error: '', name: d.label || src.name, width: rect.width, height: rect.height });
+    Object.assign(this.status, { status: 'starting', error: '', name: d.label || (src ? src.name : cameraLabel), width: rect.width, height: rect.height });
+  }
+
+  // Wayland Mirror: the label of the camera that shows monitor `rect` (logical pixels, as the
+  // portal's stream positions), or '' when screenportal.js can't (the caller asks the portal instead).
+  async _camera(rect, fps) {
+    const streams = await this.portal.start(fps);
+    if (!streams) {
+      console.log('pcscreen: sharing through the portal’s dialog: ' + this.portal.error);
+      return '';
+    }
+    const s = streams.find((x) => x.position[0] === rect.x && x.position[1] === rect.y) || (streams.length === 1 ? streams[0] : null);
+    if (!s) console.log('pcscreen: no camera at ' + rect.x + ',' + rect.y + ': ' + JSON.stringify(streams));
+    return s ? s.label : '';
   }
 
   // What we offer the viewer: Extend only where this desktop can add a virtual monitor.
@@ -300,6 +323,7 @@ class PcScreen {
   // Sharing ends with the app; the virtual monitor too.
   shutdown() {
     this._stopSend(true);
+    this.portal.stop();
     if (this.mode === 'extend') this.vdd.setOn(false);
   }
 

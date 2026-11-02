@@ -44,7 +44,23 @@ function withOpus(sdp) {
     : sdp.replace(m[0], m[0] + '\r\na=fmtp:' + m[1] + ' ' + extra);
 }
 
-// m: {session, sourceId, width, height, follow?, inset?, mbps, fps?, audio, offer: {kind, wid?}}
+// A Wayland monitor as a camera (screenportal.js) by its label, scaled to width × height. The camera
+// shows up a moment after the helper starts it: look again for up to 3 s.
+async function camera(m, fps) {
+  for (let i = 0; ; i++) {
+    const d = (await navigator.mediaDevices.enumerateDevices()).find((x) => x.kind === 'videoinput' && x.label === m.cameraLabel);
+    if (d) {
+      return navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { deviceId: { exact: d.deviceId }, width: { ideal: m.width }, height: { ideal: m.height }, frameRate: { ideal: fps }, resizeMode: 'crop-and-scale' },
+      });
+    }
+    if (i >= 20) throw new Error('no camera “' + m.cameraLabel + '”');
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
+
+// m: {session, sourceId | cameraLabel, width, height, follow?, inset?, mbps, fps?, audio, offer: {kind, wid?}}
 // follow: the picture follows the source's size (an app window), up to width × height.
 // inset: an app window's invisible border, cut off (cropped()).
 // Every frame matters more than the last bit of sharpness: under pressure the encoder
@@ -57,7 +73,7 @@ async function start(m) {
   try {
     const video = { chromeMediaSource: 'desktop', chromeMediaSourceId: m.sourceId, maxWidth: m.width, maxHeight: m.height, maxFrameRate: fps };
     if (m.follow) Object.assign(video, { minWidth: 2, minHeight: 2 }); // min ≠ max: any size within the limit, no scaling
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = m.cameraLabel ? await camera(m, fps) : await navigator.mediaDevices.getUserMedia({
       audio: m.audio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
       video: { mandatory: video },
     });

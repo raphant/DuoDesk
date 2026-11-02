@@ -73,12 +73,17 @@ app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 // Every sent video frame says "show me now" (RTP playout delay 0/0); FlexFEC repairs
 // lost packets without a resend round trip. Same trials as the Mac and the PC.
 app.commandLine.appendSwitch('force-fieldtrials', 'WebRTC-ForceSendPlayoutDelay/min_ms:0,max_ms:0/WebRTC-FlexFEC-03/Enabled/WebRTC-FlexFEC-03-Advertised/Enabled/');
-// Wayland (L6): screen capture through the desktop portal and PipeWire.
-app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
+// Wayland (L6): screen capture through the desktop portal and PipeWire. Once the camera row of
+// linux/scripts/unattended-setup.sh is set, also PipeWire cameras: Mirror takes the monitor as one
+// (screenportal.js), with no dialog. One switch: a second enable-features would replace the first.
+const pwCamera = process.env.XDG_SESSION_TYPE === 'wayland' && require('./screenportal').cameraAllowed();
+app.commandLine.appendSwitch('enable-features', pwCamera ? 'WebRTCPipeWireCapturer,WebRtcPipeWireCamera' : 'WebRTCPipeWireCapturer');
 // Renamed MacShare → TwinDesk: settings, pairing and keys stay in the folder they've always been
 // in (Electron would follow the new product name). A dev copy's --user-data-dir still wins.
 if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', path.join(app.getPath('appData'), 'MacShare'));
 require('../shared/applog.js').start(app); // console.* and crashes into the log folder, both apps
+// Our own systemd scope: the desktop portal then names this app "duodesk" (scope.js).
+app.whenReady().then(() => require('./scope').own());
 // Multi-device switched on (multi.js, docs/multi-device.md): mesh/main.js runs instead of everything below.
 if (require('./multi').on()) return void require('./mesh/main.js');
 if (!app.requestSingleInstanceLock()) {
