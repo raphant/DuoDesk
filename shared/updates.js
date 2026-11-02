@@ -2,7 +2,8 @@
 // Update check for all three apps: asks GitHub for the latest release, compares its tag with this
 // app's version and picks the download for this platform and CPU. Nothing is installed here; the
 // app opens the download (or the release page) in the browser. Only DuoDesk-named files count
-// (OWN): REPO is DuoDesk's own (0xCodez/DuoDesk); upstream TwinDesk's TwinDesk-* builds are never
+// (OWN): REPO is the tailnet fork's (raphant/DuoDesk, docs-okf/tailnet-fork.md), so upstream DuoDesk
+// builds without the tailnet change are never offered; upstream TwinDesk's TwinDesk-* builds are never
 // offered, and a release without any DuoDesk file is not an update.
 //
 // new Updates({ current, platform: 'mac'|'win'|'linux', getSettings, save, notify, onChange })
@@ -10,7 +11,7 @@
 //   notify(title, body, onClick) once per new version; open() shows the download in the browser.
 'use strict';
 
-const REPO = '0xCodez/DuoDesk';
+const REPO = 'raphant/DuoDesk';
 const API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const RELEASES = `https://github.com/${REPO}/releases`;
 const FIRST_DELAY = 15 * 1000;

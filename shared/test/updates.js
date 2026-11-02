@@ -7,8 +7,8 @@
 const assert = require('assert');
 const { Updates, pickAsset, formatReleaseNotes, REPO } = require('../updates.js');
 
-// Updates come from DuoDesk's own repository, not upstream TwinDesk's.
-assert.strictEqual(REPO, '0xCodez/DuoDesk');
+// Updates come from the tailnet fork's repository, not upstream DuoDesk's or TwinDesk's.
+assert.strictEqual(REPO, 'raphant/DuoDesk');
 
 const files = (...names) => names.map((name) => ({ name, browser_download_url: 'https://example.invalid/' + name, size: 1 }));
 const pick = (assets, platform, arch, prefer) => (pickAsset(assets, platform, arch, prefer) || {}).name || null;

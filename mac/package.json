@@ -1,7 +1,7 @@
 {
   "name": "macshare-mac",
   "productName": "DuoDesk",
-  "version": "2.5.0",
+  "version": "2.5.0-tailnet.1",
   "description": "DuoDesk — the Mac side: pairing, secure link, screen sharing and shared mouse/keyboard with a Windows PC.",
   "license": "GPL-3.0",
   "author": "0xCodez (https://github.com/0xCodez)",
