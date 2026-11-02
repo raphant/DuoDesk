@@ -9,7 +9,7 @@
 // Event: 'exit' when a running helper ends (the portal closed the session, a picture stopped).
 // After two of those in a minute, start() gives up (null) until the minute has passed.
 'use strict';
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 const { EventEmitter } = require('events');
 const path = require('path');
 const scope = require('./scope');
@@ -53,6 +53,8 @@ class ScreenPortal extends EventEmitter {
     // A helper that keeps ending would open a portal session (and a KDE notice) every few seconds.
     this.ends = this.ends.filter((t) => Date.now() - t < 60000);
     if (this.ends.length >= 2) { this.error = 'the helper ended twice in the last minute'; return null; }
+    // A screen that went dark sends the same frame about twice a second: turn it on (KDE).
+    execFile('kscreen-doctor', ['--dpms', 'on'], { timeout: 3000 }, () => {});
     return new Promise((resolve) => {
       let proc;
       try {
